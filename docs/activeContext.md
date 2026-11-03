@@ -249,6 +249,22 @@ lacks them) in the theme's text color in light and dark, switching theme
 with the picker open, and paste exactly; © and ™ still paste as their
 emoji sequences.
 
+## Run without closing (2026-11-03), unverified
+
+Shift+Enter or Shift+click on a root row runs it but leaves the palette
+open, so several actions can be fired in a row. It threads a `keep_open`
+flag from the Shift modifier through `Launcher::commit` into
+`request_launch` (stored as `launch_keep_open`, so `on_launch_finished`
+does not hide) and the web-search `open_url`; the model skips `finish()`
+when the flag is set. Covers launches (apps, scripts, quicklinks, system
+actions) and web search; a calculator paste still hides, since paste-back
+must yield focus. Plain Enter/click is unchanged. No footer hint yet.
+Windows check: Shift+Enter and Shift+click launch an app / run a script /
+open a quicklink / fire a non-confirming system action / open a web search
+and keep the palette up; the launched thing still runs once; plain
+Enter/click still closes; a second Shift+Enter after the first launch
+settles works.
+
 ## Pending Windows checks
 
 - Installed programs (decision 027, linted for GNU only): Overwatch and

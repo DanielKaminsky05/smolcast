@@ -118,6 +118,9 @@ pub struct Launcher {
     /// The launch the palette waits on: its request number, the app, and
     /// since when.
     launch_pending: Option<(u64, AppId, Instant)>,
+    /// Whether the pending palette launch should leave the palette open on
+    /// success (Shift held at commit, "run without closing").
+    launch_keep_open: bool,
     open_command: Option<Command>,
     icon_requests: Vec<IconRequest>,
     usage_snapshot: Option<(u64, Vec<u8>)>,
@@ -157,8 +160,9 @@ pub struct Launcher {
     /// Rows after the ranked entries: a web search and a file search for
     /// any query (decision 022).
     fallbacks: Vec<Fallback>,
-    /// A search URL the user chose; the model opens it in the browser.
-    open_url: Option<String>,
+    /// A search URL the user chose; the model opens it in the browser. The
+    /// flag keeps the palette open afterwards (Shift at commit).
+    open_url: Option<(String, bool)>,
     /// A file search the user chose; the model opens the Files view on it.
     open_files: Option<String>,
     /// The quicklink typed as a keyword (`gh rust`): its index in `apps`
@@ -218,6 +222,7 @@ impl Launcher {
             launch_request: None,
             launch_seq: 0,
             launch_pending: None,
+            launch_keep_open: false,
             open_command: None,
             icon_requests: Vec::new(),
             usage_snapshot: None,
@@ -374,7 +379,9 @@ impl Launcher {
             Ok(()) => {
                 // Usage increments only after the shell accepted the launch (§6.3).
                 self.record_usage(&app_id);
-                pending
+                // A "run without closing" launch (Shift at commit) leaves the
+                // palette up so the user can fire another.
+                pending && !self.launch_keep_open
             }
             Err(e) => {
                 let name = self
@@ -400,8 +407,9 @@ impl Launcher {
         self.custom_search_url = custom_url.to_owned();
     }
 
-    /// A web search the user chose, to open in the default browser.
-    pub fn take_open_url(&mut self) -> Option<String> {
+    /// A web search the user chose, to open in the default browser, with
+    /// whether to keep the palette open afterwards (Shift at commit).
+    pub fn take_open_url(&mut self) -> Option<(String, bool)> {
         self.open_url.take()
     }
 
@@ -487,7 +495,7 @@ impl Launcher {
                 if let LaunchSpec::Script(spec) = &mut spec {
                     spec.args.extend(extra);
                 }
-                self.request_launch(app_id, spec, from_palette);
+                self.request_launch(app_id, spec, from_palette, false);
             }
             None => notices.push(Notice::new(
                 Severity::Warning,
@@ -639,12 +647,14 @@ impl Launcher {
         self.paste_answer.take()
     }
 
-    /// Queue a launch for the host; `wait` makes the palette wait on it.
-    fn request_launch(&mut self, app_id: AppId, spec: LaunchSpec, wait: bool) {
+    /// Queue a launch for the host; `wait` makes the palette wait on it, and
+    /// `keep_open` leaves the palette up on success instead of hiding.
+    fn request_launch(&mut self, app_id: AppId, spec: LaunchSpec, wait: bool, keep_open: bool) {
         self.launch_seq += 1;
         let seq = self.launch_seq;
         if wait {
             self.launch_pending = Some((seq, app_id.clone(), Instant::now()));
+            self.launch_keep_open = keep_open;
         }
         self.launch_request = Some(LaunchRequest { seq, app_id, spec });
     }
@@ -976,11 +986,13 @@ impl Launcher {
 
     /// Consume navigation keys before the search field sees them.
     pub fn handle_keys(&mut self, ui: &mut egui::Ui) {
-        let (down, up, enter) = ui.input_mut(|i| {
+        let (down, up, enter, shift_enter) = ui.input_mut(|i| {
             (
                 i.consume_key(Modifiers::NONE, Key::ArrowDown),
                 i.consume_key(Modifiers::NONE, Key::ArrowUp),
                 i.consume_key(Modifiers::NONE, Key::Enter),
+                // Shift+Enter runs the row without closing the palette.
+                i.consume_key(Modifiers::SHIFT, Key::Enter),
             )
         });
         let count = self.row_count();
@@ -988,14 +1000,14 @@ impl Launcher {
         if down || up {
             self.confirming = None;
         }
-        if enter {
-            self.commit(self.cursor.selected);
+        if enter || shift_enter {
+            self.commit(self.cursor.selected, shift_enter);
         }
         // Tab completes a quicklink's keyword so its query can be typed.
         if self.needs_query(self.cursor.selected)
             && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab))
         {
-            self.commit(self.cursor.selected);
+            self.commit(self.cursor.selected, false);
         }
         // Raycast's favorite shortcuts, with Ctrl for Cmd.
         let shift_ctrl = Modifiers::CTRL | Modifiers::SHIFT;
@@ -1182,6 +1194,10 @@ impl Launcher {
         let icon_px = (ICON_POINTS * ui.ctx().pixels_per_point()).round() as u32;
         self.icons.set_edge(list::icon_request_edge(icon_px));
 
+        // Shift and only Shift held during a click runs the row without
+        // closing the palette, matching the exact-modifier Shift+Enter path;
+        // modifiers are frame-global, so read once.
+        let shift_click = ui.input(|i| i.modifiers == Modifiers::SHIFT);
         let mut clicked = None;
         if let Some(answer) = &self.answer {
             if answer_card(ui, answer, self.cursor.selected == 0).clicked() {
@@ -1295,7 +1311,7 @@ impl Launcher {
                 self.confirming = None;
             }
             self.cursor.selected = row;
-            self.commit(row);
+            self.commit(row, shift_click);
         }
     }
 
@@ -1331,7 +1347,10 @@ impl Launcher {
         list::row(ui, state, &name, leading, trailing)
     }
 
-    fn commit(&mut self, row: usize) {
+    /// Act on a row. `keep_open` (Shift at commit) leaves the palette up after
+    /// a launch or web search instead of hiding, so several can be fired in a
+    /// row; a calculator paste still hides, since paste-back must yield focus.
+    fn commit(&mut self, row: usize, keep_open: bool) {
         if self.launch_pending.is_some() {
             return; // one launch at a time; the result is on its way
         }
@@ -1344,7 +1363,7 @@ impl Launcher {
         match self.fallback_at(row) {
             Some(Fallback::Web(query)) => {
                 let template = self.search_engine.template_or(&self.custom_search_url);
-                self.open_url = Some(web::search_url(template, query));
+                self.open_url = Some((web::search_url(template, query), keep_open));
                 return;
             }
             Some(Fallback::Files(query)) => {
@@ -1386,7 +1405,7 @@ impl Launcher {
             _ => {}
         }
         self.confirming = None;
-        self.request_launch(app_id, spec, true);
+        self.request_launch(app_id, spec, true, keep_open);
     }
 }
 

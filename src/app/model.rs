@@ -1462,11 +1462,14 @@ impl AppModel {
                     self.notices.push(notice);
                 }
                 // A web search is a completed action: the browser takes over
-                // and the next summon starts fresh.
-                if let Some(url) = self.launcher.take_open_url() {
+                // and the next summon starts fresh, unless Shift was held to
+                // keep the palette open ("run without closing").
+                if let Some((url, keep_open)) = self.launcher.take_open_url() {
                     crate::win::shell::open_uri(url);
-                    let ctx = ui.ctx().clone();
-                    self.finish(&ctx);
+                    if !keep_open {
+                        let ctx = ui.ctx().clone();
+                        self.finish(&ctx);
+                    }
                 }
                 if let Some(query) = self.launcher.take_open_files() {
                     self.open_view(View::Files);
