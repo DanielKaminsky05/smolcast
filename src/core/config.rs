@@ -261,6 +261,20 @@ pub enum Appearance {
 
 impl Appearance {
     pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
+
+    /// Resolve "Follow Windows" to an explicit [`Self::Light`] or
+    /// [`Self::Dark`] from the current Windows app mode (`Some(true)` dark,
+    /// `Some(false)` light); `None`, or an already-forced value, is returned
+    /// unchanged. The host reads the app mode fresh on each show, so a live
+    /// Windows theme switch is tracked rather than the mode detected at
+    /// startup (`eframe_host::sync_look`).
+    pub fn resolve(self, system_dark: Option<bool>) -> Self {
+        match (self, system_dark) {
+            (Self::System, Some(true)) => Self::Dark,
+            (Self::System, Some(false)) => Self::Light,
+            _ => self,
+        }
+    }
 }
 
 /// A color theme. Every theme has a light and a dark variant, so it combines

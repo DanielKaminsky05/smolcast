@@ -117,6 +117,25 @@ fn transparency_enabled() -> bool {
     value != 0
 }
 
+/// Settings > Personalization > Colors: whether Windows is using the dark app
+/// theme right now (`AppsUseLightTheme`, 0 = dark, 1 = light). `None` when the
+/// value is absent or cannot be read, so the caller falls back to the theme
+/// winit reports. Read on each show so "Follow Windows" tracks a live switch
+/// instead of latching the value detected at startup.
+pub fn app_theme_dark() -> Option<bool> {
+    let mut value = 1u32;
+    let mut bytes = size_of::<u32>() as u32;
+    read_value(
+        HKEY_CURRENT_USER,
+        w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+        w!("AppsUseLightTheme"),
+        RRF_RT_REG_DWORD,
+        (&mut value as *mut u32).cast(),
+        &mut bytes,
+    )?;
+    Some(value == 0)
+}
+
 /// Settings > Accessibility > Visual effects > Animation effects. Assumed on
 /// when the query fails.
 pub fn animations_enabled() -> bool {

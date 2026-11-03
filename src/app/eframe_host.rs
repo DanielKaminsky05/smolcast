@@ -108,6 +108,9 @@ pub struct EframeApp {
 struct SystemLook {
     animations: bool,
     high_contrast: bool,
+    /// Windows' current app theme: `Some(true)` dark, `Some(false)` light,
+    /// `None` when the registry read failed (fall back to winit's report).
+    dark: Option<bool>,
 }
 
 impl SystemLook {
@@ -115,6 +118,7 @@ impl SystemLook {
         Self {
             animations: appearance::animations_enabled(),
             high_contrast: appearance::high_contrast(),
+            dark: appearance::app_theme_dark(),
         }
     }
 }
@@ -315,7 +319,11 @@ impl EframeApp {
             text: settings.text_size,
             reduced_motion: settings.reduce_motion.reduced(self.system_look.animations),
             high_contrast: self.system_look.high_contrast,
-            appearance: colors.appearance,
+            // "Follow Windows" is resolved to an explicit light/dark from the
+            // app mode re-read on each show, because egui's own
+            // `ThemePreference::System` only tracks winit theme-change events,
+            // which the hidden, undecorated palette does not reliably receive.
+            appearance: colors.appearance.resolve(self.system_look.dark),
             theme: colors.theme,
         };
         let size = settings.palette_size;

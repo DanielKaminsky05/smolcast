@@ -228,7 +228,13 @@ Decision 041: `appearance` (system/light/dark) and `theme` (Default, Claude,
 Slate, Sage, Mono) are independent settings; each theme has light and dark
 palettes and its own accent. Over Mica tinted themes paint `mica_opacity`
 percent of their background (the theme's default unless set). Settings
-previews the colors live from its draft. Never built or run on Windows.
+previews the colors live from its draft. Follow Windows resolves to an
+explicit light/dark (`Appearance::resolve`) from the `AppsUseLightTheme`
+registry value re-read on each show (`win/appearance::app_theme_dark`,
+`eframe_host::sync_look`), because egui's `ThemePreference::System` only
+updates on a winit theme-change event that the hidden, undecorated palette
+does not reliably receive and so would latch the theme detected at startup.
+Never built or run on Windows (the resolve fix is likewise unverified).
 Windows check: each theme in Follow Windows, Light and Dark, flipping the
 Windows mode while forced and while following; the DWM frame and Mica tint
 follow a forced mode; the opacity slider changes the backdrop live and Reset
