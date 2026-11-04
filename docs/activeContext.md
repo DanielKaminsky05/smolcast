@@ -249,6 +249,25 @@ lacks them) in the theme's text color in light and dark, switching theme
 with the picker open, and paste exactly; © and ™ still paste as their
 emoji sequences.
 
+## High contrast keeps the panel solid (2026-11-03), unverified
+
+DESIGN.md (High contrast) says Mica is off under a Windows high-contrast
+theme, but `self.mica` is fixed at startup (the GL surface transparency
+cannot change), so a theme turned on *after* startup left the panel painted
+with `mica_fill`: the transparent panel showed the high-contrast desktop
+through it and the palette's own background/text never landed, so row
+names went dark-on-dark and unreadable (`high_contrast()` strengthens
+fills only, never background/text). `eframe_host::mica_active` now gates
+the panel fill and clear color on the live `system_look.high_contrast`
+(re-read on each show), so a high-contrast theme toggled while resident
+paints the solid `panel_fill`, matching a fresh start under high contrast.
+Not fixed here: smolcast still renders its own (strengthened) palette, not
+the Windows system high-contrast colors (`GetSysColor`) — a larger change
+that would need its own decision. Windows check: toggle high contrast on
+and off while the palette is resident (not just at startup) in Follow
+Windows, Light and Dark; the panel is solid and readable each time; Mica
+returns when high contrast goes back off.
+
 ## Pending Windows checks
 
 - Installed programs (decision 027, linted for GNU only): Overwatch and

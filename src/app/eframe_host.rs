@@ -330,6 +330,19 @@ impl EframeApp {
         self.applied_look = Some((size, look));
     }
 
+    /// Whether the panel paints its Mica backdrop this frame. The surface
+    /// transparency is fixed at startup (`self.mica`), but under a Windows
+    /// high-contrast theme the client area must be solid (DESIGN.md, High
+    /// contrast): `system_look.high_contrast` is re-read on each show, so a
+    /// theme toggled after startup paints the opaque `panel_fill` over the
+    /// client area instead of `mica_fill`. The surface stays transparent and
+    /// the startup DWM backdrop attribute is left set, so Mica may still
+    /// composite at the rounded frame; only the readable client fill is
+    /// corrected here.
+    fn mica_active(&self) -> bool {
+        self.mica && !self.system_look.high_contrast
+    }
+
     /// Per-callback tick: drain events, execute the model's effects, and
     /// trigger quit. Called by both the hidden `logic` pass and the visible
     /// `ui` pass.
@@ -794,7 +807,7 @@ impl eframe::App for EframeApp {
             // DWM draws the rounded corners and border; with Mica the panel is
             // clear or a tinted theme's background at partial opacity, so the
             // backdrop shows through.
-            let fill = if self.mica {
+            let fill = if self.mica_active() {
                 let colors = self.model.look_settings();
                 theme::mica_fill(ui, colors.theme, colors.mica_opacity)
             } else {
@@ -824,7 +837,7 @@ impl eframe::App for EframeApp {
     }
 
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
-        if self.mica {
+        if self.mica_active() {
             [0.0; 4]
         } else {
             visuals.panel_fill.to_normalized_gamma_f32()
